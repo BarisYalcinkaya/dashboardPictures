@@ -1,0 +1,310 @@
+# Installing Dependencies 
+# install tidyverse ecosystem packages to use specific functions during the transformation process
+
+
+#install.packages('tidyverse')
+#install.packages('lubridate')
+#install.packages('leaflet')
+#install.packages('htmltools')
+#install.packages('htmlwidgets')
+
+  
+  
+library(tidyverse)
+library(lubridate)
+library(leaflet)
+library(htmltools)
+library(htmlwidgets)
+# install readxl package to use read_excel function to open xlsx format file
+
+library(readxl)
+
+# read excel dataset and assign it to a variable named migr_iom
+migr_iom <- read_excel("Desktop/r_analysis/iom_missing_migrants_dataset/MissingMigrants-Global-2019-12-17T01-59-56.xlsx", sheet = 1)
+
+# Transform the excel dataset to tibble format
+migr_iom <- tbl_df(migr_iom)
+
+# Check the column names
+colnames(migr_iom)
+
+migr_iom <- migr_iom %>% 
+  # remove unnecessary columns 
+  select(-`Reported Year`) %>% 
+  # rename columns
+    rename(id = 'Web ID',
+           region = 'Region of Incident',
+           reported_date = 'Reported Date',
+           reported_month = 'Reported Month',
+           dead = 'Number Dead',
+           est_missing = 'Minimum Estimated Number of Missing',
+           survivors = 'Number of Survivors',
+           total_casualities = 'Total Dead and Missing',
+           male_casualities = 'Number of Males',
+           female_casualities = 'Number of Females',
+           children_casualities = 'Number of Children',
+           incident_type = 'Cause of Death',
+           desc_location = 'Location Description',
+           info_source = 'Information Source',
+           coordinates = 'Location Coordinates',
+           src_quality = 'Source Quality',
+           url = 'URL',
+           sub_region ='UNSD Geographical Grouping',
+           migration_route = "Migration Route"
+           )
+
+# Using 0 for NA values
+migr_iom[is.na(migr_iom)] <- 0
+
+migr_iom$reported_date = mdy(migr_iom$reported_date)
+
+migr_iom$reported_date
+
+migr_iom_med <- migr_iom %>% 
+  separate(coordinates, c('x_coordinate', 'y_coordinate'),sep =",") %>% 
+  separate(url, c('URL1', 'URL2'),sep =",") %>% 
+  filter(region == 'Mediterranean')
+
+migr_iom_med_categorized <- migr_iom_med %>%
+  mutate(
+    incident_type = case_when(
+      incident_type %in% c('Drowning','Drowning, Dehydration','Hypothermia') ~ 'Drowning&Hypotermia',
+      incident_type %in% c('Presumed drowning','Presumed drowning, Hypothermia')  ~ 'Presumed Drowning',
+      incident_type %in% c('Fall from truck', 'Hit by truck') ~ 'Traffic Accident',
+      incident_type %in% c('Collision','Shot', 'Stabbed')~ 'Physical Assault',
+      incident_type %in% c('Sickness and lack of access to medicine', 'Starvation', 'Cardiac arrest') ~ 'Sickness and Lack of Access to Medicine',
+      TRUE ~ 'Unknown'
+    )
+  )
+
+migr_iom_med_categorized$x_coordinate <- as.double(migr_iom_med_categorized$x_coordinate)  
+migr_iom_med_categorized$y_coordinate <- as.double(migr_iom_med_categorized$y_coordinate)  
+
+# # Create a color palette with handmade bins.
+# mybins=seq(0, 151, by=20)
+# mypalette = colorBin( palette="YlOrBr", domain=migr_iom_med_categorized$total_casualities, na.color="transparent", bins=mybins)
+# 
+
+migr_iom_med_categorized
+colnames(migr_iom_med_categorized)
+
+unique(migr_iom_med_categorized$incident_type) 
+
+pal <- colorFactor(palette = c("red", "blue", "#9b4a11"),
+                   levels = c("Drowning&Hypotermia", "Traffic Accident", "Physical Assault", "Presumed Drowning", "Sickness and Lack of Access to Medicine", "Unknown"))
+
+
+migr_iom_med_categorized_drowning_and_hypotermia <- migr_iom_med_categorized %>% 
+  filter(incident_type == "Drowning&Hypotermia")
+
+migr_iom_med_categorized_traffic_accident <- migr_iom_med_categorized %>% 
+  filter(incident_type == "Traffic Accident")
+
+migr_iom_med_categorized_physical_assault <- migr_iom_med_categorized %>% 
+  filter(incident_type == "Physical Assault")
+
+migr_iom_med_categorized_presumed_drowning <- migr_iom_med_categorized %>% 
+  filter(incident_type == "Presumed Drowning")
+
+migr_iom_med_categorized_sickness <- migr_iom_med_categorized %>% 
+  filter(incident_type == "Sickness and Lack of Access to Medicine")
+
+migr_iom_med_categorized_unknown <- migr_iom_med_categorized %>% 
+  filter(incident_type == "Unknown")
+
+
+rr <- tags$div(
+  HTML('<a href="https://missingmigrants.iom.int/region/mediterranean"> <img border="0" alt="ImageTitle" src="https://missingmigrants.iom.int/sites/default/files/images/03_IOM_BLUE.jpg" width="325" height="160"> </a>')
+)
+title <- tags$div(
+  HTML('<a href="https://missingmigrants.iom.int/region/mediterranean"> <img border="0" alt="ImageTitle" src="https://missingmigrants.iom.int/sites/default/files/images/03_IOM_BLUE.jpg" width="325" height="160"> </a>')
+)  
+
+
+
+
+m <- leaflet() %>% 
+  addTiles(group = "OSM") %>% 
+  # addProviderTiles("CartoDB", group = "Carto") %>% 
+  addProviderTiles("Esri", group = "Esri") %>%
+  addControl(rr, position = "bottomright") %>% 
+  addCircleMarkers(data = migr_iom_med_categorized_drowning_and_hypotermia,
+                   radius = ~sqrt(total_casualities) * 3,
+                   lat = ~x_coordinate,
+                   lng = ~y_coordinate,
+                  
+                   fillOpacity = 0.3,
+                   fillColor = "blue",
+                   stroke = FALSE,
+                   popup = paste("<b>Region:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$region, "<br>",
+                                 "<b>Sub-region:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$sub_region, "<br>",
+                                 "<b>Location:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$desc_location, "<br>",
+                                 "<b>Reported Date:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$reported_date, "<br>",
+                                 "<b>Migration Route:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$migration_route, "<br>",
+                                 "<b>Total Dead and Missing:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$total_casualities, "<br>",
+                                 "<b>Number of People Dead:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$dead, "<br>",
+                                 "<b>Estimated Number of People Missing:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$est_missing, "<br>",
+                                 "<b>Number of Survivors:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$survivors, "<br>",
+                                 "<b>Number of Females:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$female_casualities, "<br>",
+                                 "<b>Number of Males:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$male_casualities, "<br>",
+                                 "<b>Number of Children:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$children_casualities, "<br>",
+                                 "<b>Information Source:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$info_source, "<br>",
+                                 "<b>Source Quality:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$src_quality, "<br>",
+                                 "<b>Link:</b> ", migr_iom_med_categorized_drowning_and_hypotermia$URL1, "<br>"
+                                   ),
+                   #color = ~pal(migr_iom_med_categorized$incident_type),
+                   label = migr_iom_med_categorized_drowning_and_hypotermia$desc_location,
+                   group = "Drowning&Hypotermia"
+                   ) %>% 
+  addCircleMarkers(data = migr_iom_med_categorized_traffic_accident,
+                   radius = ~sqrt(total_casualities) * 6,
+                   lat = ~x_coordinate,
+                   lng = ~y_coordinate,
+                   
+                   fillOpacity = 0.5,
+                   fillColor = "black",
+                   stroke = FALSE,
+                  
+                   popup = paste("<b>Region:</b> ", migr_iom_med_categorized_traffic_accident$region, "<br>",
+                                 "<b>Sub-region:</b> ", migr_iom_med_categorized_traffic_accident$sub_region, "<br>",
+                                 "<b>Location:</b> ", migr_iom_med_categorized_traffic_accident$desc_location, "<br>",
+                                 "<b>Reported Date:</b> ", migr_iom_med_categorized_traffic_accident$reported_date, "<br>",
+                                 "<b>Migration Route:</b> ", migr_iom_med_categorized_traffic_accident$migration_route, "<br>",
+                                 "<b>Total Dead and Missing:</b> ", migr_iom_med_categorized_traffic_accident$total_casualities, "<br>",
+                                 "<b>Number of People Dead:</b> ", migr_iom_med_categorized_traffic_accident$dead, "<br>",
+                                 "<b>Estimated Number of People Missing:</b> ", migr_iom_med_categorized_traffic_accident$est_missing, "<br>",
+                                 "<b>Number of Survivors:</b> ", migr_iom_med_categorized_traffic_accident$survivors, "<br>",
+                                 "<b>Number of Females:</b> ", migr_iom_med_categorized_traffic_accident$female_casualities, "<br>",
+                                 "<b>Number of Males:</b> ", migr_iom_med_categorized_traffic_accident$male_casualities, "<br>",
+                                 "<b>Number of Children:</b> ", migr_iom_med_categorized_traffic_accident$children_casualities, "<br>",
+                                 "<b>Information Source:</b> ", migr_iom_med_categorized_traffic_accident$info_source, "<br>",
+                                 "<b>Source Quality:</b> ", migr_iom_med_categorized_traffic_accident$src_quality, "<br>",
+                                 "<b>Link:</b> ", migr_iom_med_categorized_traffic_accident$URL1, "<br>"
+                   ),
+                   #color = ~pal(migr_iom_med_categorized$incident_type),
+                   label = ~desc_location,
+                   group = "Traffic Accident"
+  ) %>% 
+  addCircleMarkers(data = migr_iom_med_categorized_physical_assault,
+                   radius = ~sqrt(total_casualities) * 6,
+                   lat = ~x_coordinate,
+                   lng = ~y_coordinate,
+                   
+                   fillOpacity = 0.5,
+                   fillColor = "red",
+                   stroke = FALSE,
+                   
+                   popup = paste("<b>Region:</b> ", migr_iom_med_categorized_physical_assault$region, "<br>",
+                                 "<b>Sub-region:</b> ", migr_iom_med_categorized_physical_assault$sub_region, "<br>",
+                                 "<b>Location:</b> ", migr_iom_med_categorized_physical_assault$desc_location, "<br>",
+                                 "<b>Reported Date:</b> ", migr_iom_med_categorized_physical_assault$reported_date, "<br>",
+                                 "<b>Migration Route:</b> ", migr_iom_med_categorized_physical_assault$migration_route, "<br>",
+                                 "<b>Total Dead and Missing:</b> ", migr_iom_med_categorized_physical_assault$total_casualities, "<br>",
+                                 "<b>Number of People Dead:</b> ", migr_iom_med_categorized_physical_assault$dead, "<br>",
+                                 "<b>Estimated Number of People Missing:</b> ", migr_iom_med_categorized_physical_assault$est_missing, "<br>",
+                                 "<b>Number of Survivors:</b> ", migr_iom_med_categorized_physical_assault$survivors, "<br>",
+                                 "<b>Number of Females:</b> ", migr_iom_med_categorized_physical_assault$female_casualities, "<br>",
+                                 "<b>Number of Males:</b> ", migr_iom_med_categorized_physical_assault$male_casualities, "<br>",
+                                 "<b>Number of Children:</b> ", migr_iom_med_categorized_physical_assault$children_casualities, "<br>",
+                                 "<b>Information Source:</b> ", migr_iom_med_categorized_physical_assault$info_source, "<br>",
+                                 "<b>Source Quality:</b> ", migr_iom_med_categorized_physical_assault$src_quality, "<br>",
+                                 "<b>Link:</b> ", migr_iom_med_categorized_physical_assault$URL1, "<br>"
+                   ),
+                   #color = ~pal(migr_iom_med_categorized$incident_type),
+                   label = ~desc_location,
+                   group = "Physical Assault"
+  ) %>%
+  addCircleMarkers(data = migr_iom_med_categorized_presumed_drowning,
+                   radius = ~sqrt(total_casualities) * 3  ,
+                   lat = ~x_coordinate,
+                   lng = ~y_coordinate,
+                   
+                   fillOpacity = 0.3,
+                   fillColor = "purple",
+                   stroke = FALSE,
+                   
+                   popup = paste("<b>Region:</b> ", migr_iom_med_categorized_presumed_drowning$region, "<br>",
+                                 "<b>Sub-region:</b> ", migr_iom_med_categorized_presumed_drowning$sub_region, "<br>",
+                                 "<b>Location:</b> ", migr_iom_med_categorized_presumed_drowning$desc_location, "<br>",
+                                 "<b>Reported Date:</b> ", migr_iom_med_categorized_presumed_drowning$reported_date, "<br>",
+                                 "<b>Migration Route:</b> ", migr_iom_med_categorized_presumed_drowning$migration_route, "<br>",
+                                 "<b>Total Dead and Missing:</b> ", migr_iom_med_categorized_presumed_drowning$total_casualities, "<br>",
+                                 "<b>Number of People Dead:</b> ", migr_iom_med_categorized_presumed_drowning$dead, "<br>",
+                                 "<b>Estimated Number of People Missing:</b> ", migr_iom_med_categorized_presumed_drowning$est_missing, "<br>",
+                                 "<b>Number of Survivors:</b> ", migr_iom_med_categorized_presumed_drowning$survivors, "<br>",
+                                 "<b>Number of Females:</b> ", migr_iom_med_categorized_presumed_drowning$female_casualities, "<br>",
+                                 "<b>Number of Males:</b> ", migr_iom_med_categorized_presumed_drowning$male_casualities, "<br>",
+                                 "<b>Number of Children:</b> ", migr_iom_med_categorized_presumed_drowning$children_casualities, "<br>",
+                                 "<b>Information Source:</b> ", migr_iom_med_categorized_presumed_drowning$info_source, "<br>",
+                                 "<b>Source Quality:</b> ", migr_iom_med_categorized_presumed_drowning$src_quality, "<br>",
+                                 "<b>Link:</b> ", migr_iom_med_categorized_presumed_drowning$URL1, "<br>"
+                   ),
+                   #color = ~pal(migr_iom_med_categorized$incident_type),
+                   label = ~desc_location,
+                   group = "Presumed Drowning"
+  ) %>% 
+  addCircleMarkers(data = migr_iom_med_categorized_sickness,
+                   radius = ~sqrt(total_casualities) * 6,
+                   lat = ~x_coordinate,
+                   lng = ~y_coordinate,
+                   
+                   fillOpacity = 0.5,
+                   fillColor = "orange",
+                   stroke = FALSE,
+                   
+                   popup = paste("<b>Region:</b> ", migr_iom_med_categorized_sickness$region, "<br>",
+                                 "<b>Sub-region:</b> ", migr_iom_med_categorized_sickness$sub_region, "<br>",
+                                 "<b>Location:</b> ", migr_iom_med_categorized_sickness$desc_location, "<br>",
+                                 "<b>Reported Date:</b> ", migr_iom_med_categorized_sickness$reported_date, "<br>",
+                                 "<b>Migration Route:</b> ", migr_iom_med_categorized_sickness$migration_route, "<br>",
+                                 "<b>Total Dead and Missing:</b> ", migr_iom_med_categorized_sickness$total_casualities, "<br>",
+                                 "<b>Number of People Dead:</b> ", migr_iom_med_categorized_sickness$dead, "<br>",
+                                 "<b>Estimated Number of People Missing:</b> ", migr_iom_med_categorized_sickness$est_missing, "<br>",
+                                 "<b>Number of Survivors:</b> ", migr_iom_med_categorized_sickness$survivors, "<br>",
+                                 "<b>Number of Females:</b> ", migr_iom_med_categorized_sickness$female_casualities, "<br>",
+                                 "<b>Number of Males:</b> ", migr_iom_med_categorized_sickness$male_casualities, "<br>",
+                                 "<b>Number of Children:</b> ", migr_iom_med_categorized_sickness$children_casualities, "<br>",
+                                 "<b>Information Source:</b> ", migr_iom_med_categorized_sickness$info_source, "<br>",
+                                 "<b>Source Quality:</b> ", migr_iom_med_categorized_sickness$src_quality, "<br>",
+                                 "<b>Link:</b> ", migr_iom_med_categorized_sickness$URL1, "<br>"
+                   ),
+                   #color = ~pal(migr_iom_med_categorized$incident_type),
+                   label = ~desc_location,
+                   group = "Sickness and Lack of Access to Medicine"
+  ) %>% 
+  addCircleMarkers(data = migr_iom_med_categorized_unknown,
+                   radius = ~sqrt(total_casualities) * 6,
+                   lat = ~x_coordinate,
+                   lng = ~y_coordinate,
+                   
+                   fillOpacity = 0.6,
+                   fillColor = "green",
+                   stroke = FALSE,
+                   
+                   #color = ~pal(migr_iom_med_categorized$incident_type),
+                   label = ~desc_location,
+                   group = "Unknown",
+                   popup = paste("<b>Region:</b> ", migr_iom_med_categorized_unknown$region, "<br>",
+                                 "<b>Sub-region:</b> ", migr_iom_med_categorized_unknown$sub_region, "<br>",
+                                 "<b>Location:</b> ", migr_iom_med_categorized_unknown$desc_location, "<br>",
+                                 "<b>Reported Date:</b> ", migr_iom_med_categorized_unknown$reported_date, "<br>",
+                                 "<b>Migration Route:</b> ", migr_iom_med_categorized_unknown$migration_route, "<br>",
+                                 "<b>Total Dead and Missing:</b> ", migr_iom_med_categorized_unknown$total_casualities, "<br>",
+                                 "<b>Number of People Dead:</b> ", migr_iom_med_categorized_unknown$dead, "<br>",
+                                 "<b>Estimated Number of People Missing:</b> ", migr_iom_med_categorized_unknown$est_missing, "<br>",
+                                 "<b>Number of Survivors:</b> ", migr_iom_med_categorized_unknown$survivors, "<br>",
+                                 "<b>Number of Females:</b> ", migr_iom_med_categorized_unknown$female_casualities, "<br>",
+                                 "<b>Number of Males:</b> ", migr_iom_med_categorized_unknown$male_casualities, "<br>",
+                                 "<b>Number of Children:</b> ", migr_iom_med_categorized_unknown$children_casualities, "<br>",
+                                 "<b>Information Source:</b> ", migr_iom_med_categorized_unknown$info_source, "<br>",
+                                 "<b>Source Quality:</b> ", migr_iom_med_categorized_unknown$src_quality, "<br>",
+                                 "<b>Link:</b> ", migr_iom_med_categorized_unknown$URL1, "<br>")
+                   
+  ) %>%
+  addLayersControl(overlayGroups  = c("Drowning&Hypotermia", "Traffic Accident", "Physical Assault", "Presumed Drowning","Sickness and Lack of Access to Medicine","Unknown"),
+                   position = "topright",
+                   options = layersControlOptions(collapsed = FALSE))
+  
+m
+
+
